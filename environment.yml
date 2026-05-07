@@ -1,0 +1,19 @@
+name: pds
+channels:
+  - defaults
+dependencies:
+  - seaborn=0.12.2
+  - matplotlib
+  - pandas=2.2.2
+  - pip
+  - notebook=7.0.6
+  - sqlalchemy=1.4.39
+  - xlrd=2.0.1
+  - openpyxl=3.0.10
+  - python=3.10
+  - jupyter_core[version='>=5.0.0']
+  - jupyter_server[version='>=2.0.0']
+  - polars
+  - duckdb
+  - streamlit
+prefix: /home/kennywong/miniconda3/envs/pds
