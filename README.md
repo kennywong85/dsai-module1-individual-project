@@ -19,18 +19,13 @@ Career coaches supporting jobseekers, fresh graduates, and mid-career switchers 
 
 Career coaches need a quick way to guide jobseekers using evidence from the labour market, but raw job postings are noisy and difficult to interpret quickly.
 
-## Prototype Objective
+## Prototype Objective/Usecases
 
-This project helps career coaches compare job categories by:
+    This project helps career coaches compare job categories by:
 
 - market demand
 - salary range
 - experience requirements
-- competition level
-
-## Core Questions
-
-To be confirmed
 
 ## Tech Stack
 
@@ -46,7 +41,7 @@ To be confirmed
 
 ## Project Structure
 
-data/raw/        Raw CSV files kept locally  
+ntu-sctp/data/   The full raw CSV is stored locally outside the repo at ~/code/ntu-sctp/data/SGJobData.csv. 
 data/processed/  Cleaned or exported data files  
 db/              Local DuckDB database files  
 notebooks/       Jupyter notebooks for EDA and analysis  

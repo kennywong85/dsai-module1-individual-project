@@ -1,0 +1,52 @@
+Table company {
+  company_id int [pk]
+  company_name varchar
+}
+
+Table employment_type {
+  employment_type_id int [pk]
+  employment_type_name varchar
+}
+
+Table position_level {
+  position_level_id int [pk]
+  position_level_name varchar
+}
+
+Table category {
+  category_id int [pk]
+  category_name varchar
+}
+
+Table job_posting {
+  job_post_id varchar [pk]
+  title varchar
+
+  company_id int [ref: > company.company_id]
+  employment_type_id int [ref: > employment_type.employment_type_id]
+  position_level_id int [ref: > position_level.position_level_id]
+
+  minimum_years_experience int
+  number_of_vacancies int
+
+  salary_minimum decimal
+  salary_maximum decimal
+  average_salary decimal
+
+  total_applications int
+  total_views int
+
+  new_posting_date date
+  original_posting_date date
+  expiry_date date
+}
+
+Table job_category {
+  job_post_id varchar [ref: > job_posting.job_post_id]
+  category_id int [ref: > category.category_id]
+  category_order int
+
+  indexes {
+    (job_post_id, category_id) [pk]
+  }
+}
