@@ -6,25 +6,41 @@ import pandas as pd
 
 
 
-# This finds the main project folder.
+# This finds the main project folder, no matter where I run this script from
 # Example:
 # /home/kennywong/code/ntu-sctp/repos/dsai-module1-individual-project
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# This points to the big CSV file.
+# This points to the big CSV file. go uop twice into the data folder outisde of the project folder
 # The CSV is stored outside the Git repo because it is too large for GitHub.
 CSV_PATH = PROJECT_ROOT / "../../data/SGJobData.csv"
 
+# Decide where database file goes
 # This is where we will create the DuckDB database file.
+# This file is local and should not be committed to GitHub.
 DB_PATH = PROJECT_ROOT / "db/jobs.duckdb"
 
 
 # mini cleaning script
+# This function takes the messy categories cell and turns it into a clean list of categories.
 # Convert the raw categories text into a list of category dictionaries.
 # Example input:
 # [{"id": 21, "category": "Information Technology"}]
 # Example output:
 # [{"category_id": 21, "category_name": "Information Technology"}]
+
+
+#If the category cell is missing, return nothing.
+#If the category cell is blank, return nothing.
+#Try to read the category text as structured data.
+#If it is one category, turn it into a list.
+#If it is not a list, ignore it.
+#For each category:
+#    check that it has an ID and name
+#    clean the ID and name
+#    save it
+#Return the clean list.
+
 
 def parse_categories(value):  
     # If the value is missing, return an empty list.
@@ -38,11 +54,12 @@ def parse_categories(value):
     if text == "" or text == "[]":
         return []
 
-    # Try to read the text as JSON.
+    # Try to read the text as JSON. read data
     try:
         data = json.loads(text)
 
     # If JSON reading fails, try a backup method.
+    # use ast
     except json.JSONDecodeError:
         try:
             data = ast.literal_eval(text)
@@ -59,17 +76,20 @@ def parse_categories(value):
 
     cleaned_categories = []
 
-    # Loop through each category item.
+    # Loop through each category item using data
     for item in data:
+        #skip anything that isnt a dictonary
         if not isinstance(item, dict):
             continue
 
         category_id = item.get("id")
         category_name = item.get("category")
 
+        #skip incomplete records
         if category_id is None or category_name is None:
             continue
 
+        #add cleaned category record
         cleaned_categories.append(
             {
                 "category_id": int(category_id),
@@ -77,11 +97,19 @@ def parse_categories(value):
             }
         )
 
+    #gives the final cleaned category list back to whoever called the function
     return cleaned_categories
 
 
 
-#start of the main job of the script
+# start of the main job of the script - main()
+# check CSV exists
+# create/open database
+# load CSV into jobs_raw
+# create clean tables
+# create view
+# close database
+
 def main():
     # Check that Python knows where the project root folder is.
     print("Project Root:", PROJECT_ROOT)
@@ -112,9 +140,16 @@ def main():
     # Convert the CSV path into a string for SQL
     csv_path_text = str(CSV_PATH)
 
+
+
     # Create a raw table from the CSV file
     # jobs_raw is the original CSV loaded into DuckDB
-    # Send a SQL command to DuckDB.
+    # Python sends SQL command to DuckDB.
+    # Create a table called jobs_raw. If it already exists, replace it
+    # read_csv_auto tries to understand the CSV automatically
+    # Step 1: Load everything as text into jobs_raw
+    # Step 2: Later, convert selected columns into numbers/dates
+    # The f"..." is an f-string. It lets you insert variables into text.
     con.execute(   
         f"""
         CREATE OR REPLACE TABLE jobs_raw AS
@@ -130,13 +165,32 @@ def main():
 
     # Sanity checks
     # Count number of rows inside jobs_raw.
+    # The f"..." is an f-string. It lets you insert variables into text.
+    # The [0] takes the first item from the tuple
     row_count = con.execute("SELECT COUNT(*) FROM jobs_raw").fetchone()[0]
     print(f"jobs_raw row count: {row_count:,}")
 
-    # Show the columns inside jobs_raw.
+    # Show the columns inside jobs_raw, return result as pandas dataframe, don’t show the pandas row index
     columns_df = con.execute("DESCRIBE jobs_raw").df()
     print("\nColumns in jobs_raw:")
     print(columns_df[["column_name", "column_type"]].to_string(index=False))
+
+    # so far
+    # Print project path
+    # Print CSV path
+    # Print database path
+
+    # Check CSV exists
+    # Create db folder
+    # Open DuckDB
+
+    # Load CSV into jobs_raw
+    # Show tables
+    # Count rows
+    # Show columns
+
+
+
 
 
 
