@@ -4,7 +4,7 @@ import duckdb
 import streamlit as st
 
 
-# -----------------------------conda
+# -----------------------------
 # Page setup
 # -----------------------------
 
@@ -32,7 +32,6 @@ DB_PATH = PROJECT_ROOT / "db" / "jobs.duckdb"
 
 st.caption(f"Database path: `{DB_PATH}`")
 
-
 if not DB_PATH.exists():
     st.error("Database not found. Run `python src/create_database.py` first.")
     st.stop()
@@ -55,17 +54,160 @@ def run_query(query):
 
 
 # -----------------------------
+# Sidebar filters
+# -----------------------------
+
+st.sidebar.header("Dashboard Filters")
+
+category_list_query = """
+SELECT DISTINCT
+    category_name
+FROM vw_career_coach_jobs
+WHERE category_name IS NOT NULL
+ORDER BY category_name;
+"""
+
+category_list = run_query(category_list_query)["category_name"].tolist()
+
+selected_categories = st.sidebar.multiselect(
+    "Job categories",
+    options=category_list,
+    default=[]
+)
+
+
+range_query = """
+SELECT
+    MIN(average_salary) AS min_average_salary,
+    MAX(average_salary) AS max_average_salary,
+    MIN(minimum_years_experience) AS min_years_experience,
+    MAX(minimum_years_experience) AS max_years_experience,
+    MIN(new_posting_date) AS min_posting_date,
+    MAX(new_posting_date) AS max_posting_date
+FROM vw_career_coach_jobs;
+"""
+
+range_df = run_query(range_query)
+
+min_salary = int(range_df.loc[0, "min_average_salary"])
+max_salary = int(range_df.loc[0, "max_average_salary"])
+
+# Keep the salary slider usable.
+# Some datasets may contain extreme salary outliers.
+salary_slider_max = min(max_salary, 20000)
+
+selected_salary_range = st.sidebar.slider(
+    "Average salary range",
+    min_value=min_salary,
+    max_value=salary_slider_max,
+    value=(min_salary, salary_slider_max),
+    step=500
+)
+
+min_experience = int(range_df.loc[0, "min_years_experience"])
+max_experience = int(range_df.loc[0, "max_years_experience"])
+
+# Keep the experience slider readable.
+experience_slider_max = min(max_experience, 20)
+
+selected_experience_range = st.sidebar.slider(
+    "Minimum years experience range",
+    min_value=min_experience,
+    max_value=experience_slider_max,
+    value=(min_experience, experience_slider_max),
+    step=1
+)
+
+min_posting_date = range_df.loc[0, "min_posting_date"]
+max_posting_date = range_df.loc[0, "max_posting_date"]
+
+selected_date_range = st.sidebar.date_input(
+    "Posting date range",
+    value=(min_posting_date, max_posting_date),
+    min_value=min_posting_date,
+    max_value=max_posting_date
+)
+
+top_n = st.sidebar.slider(
+    "Number of results to show",
+    min_value=5,
+    max_value=20,
+    value=10,
+    step=5
+)
+
+
+def build_filter_sql():
+    """
+    Build SQL filters based on the sidebar selections.
+    These filters are reused across the dashboard.
+    """
+    filters = [
+        "category_name IS NOT NULL"
+    ]
+
+    if selected_categories:
+        cleaned_categories = [
+            category.replace("'", "''")
+            for category in selected_categories
+        ]
+
+        category_text = ", ".join(
+            f"'{category}'"
+            for category in cleaned_categories
+        )
+
+        filters.append(f"category_name IN ({category_text})")
+
+    salary_min, salary_max = selected_salary_range
+
+    filters.append(
+        f"""
+        (
+            average_salary IS NULL
+            OR average_salary BETWEEN {salary_min} AND {salary_max}
+        )
+        """
+    )
+
+    experience_min, experience_max = selected_experience_range
+
+    filters.append(
+        f"""
+        (
+            minimum_years_experience IS NULL
+            OR minimum_years_experience BETWEEN {experience_min} AND {experience_max}
+        )
+        """
+    )
+
+    if len(selected_date_range) == 2:
+        start_date = selected_date_range[0]
+        end_date = selected_date_range[1]
+
+        filters.append(
+            f"new_posting_date BETWEEN DATE '{start_date}' AND DATE '{end_date}'"
+        )
+
+    return " AND ".join(filters)
+
+
+filter_sql = build_filter_sql()
+
+
+# -----------------------------
 # Dataset summary
 # -----------------------------
 
-summary_query = """
+summary_query = f"""
 SELECT
     COUNT(DISTINCT job_post_id) AS total_unique_job_postings,
     COUNT(DISTINCT category_name) AS total_categories,
     COUNT(DISTINCT company_name) AS total_companies,
     MIN(new_posting_date) AS earliest_posting_date,
     MAX(new_posting_date) AS latest_posting_date
-FROM vw_career_coach_jobs;
+FROM vw_career_coach_jobs
+WHERE {filter_sql};
 """
 
 summary_df = run_query(summary_query)
@@ -96,6 +238,22 @@ st.caption(
 
 
 # -----------------------------
+# Sort helper
+# -----------------------------
+
+def sort_dataframe(dataframe, sort_column, sort_direction):
+    """
+    Sort a DataFrame using a selected column and direction.
+    """
+    ascending = sort_direction == "Lowest first"
+
+    return dataframe.sort_values(
+        sort_column,
+        ascending=ascending
+    ).reset_index(drop=True)
+
+
+# -----------------------------
 # Dashboard tabs
 # -----------------------------
 
@@ -123,28 +281,28 @@ with tab1:
         """
     )
 
-    postings_query = """
+    postings_query = f"""
     SELECT
         category_name,
         COUNT(DISTINCT job_post_id) AS total_job_postings
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
     GROUP BY category_name
     ORDER BY total_job_postings DESC
-    LIMIT 10;
+    LIMIT {top_n};
     """
 
     top_categories_by_postings = run_query(postings_query)
 
-    vacancies_query = """
+    vacancies_query = f"""
     SELECT
         category_name,
         SUM(number_of_vacancies) AS total_vacancies
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
     GROUP BY category_name
     ORDER BY total_vacancies DESC
-    LIMIT 10;
+    LIMIT {top_n};
     """
 
     top_categories_by_vacancies = run_query(vacancies_query)
@@ -153,14 +311,48 @@ with tab1:
 
     with left_col:
         st.subheader("Top Categories by Job Postings")
-        st.dataframe(top_categories_by_postings, use_container_width=True)
+
+        postings_sort_direction = st.radio(
+            "Sort job postings",
+            ["Highest first", "Lowest first"],
+            horizontal=True,
+            key="postings_sort_direction"
+        )
+
+        top_categories_by_postings = sort_dataframe(
+            top_categories_by_postings,
+            "total_job_postings",
+            postings_sort_direction
+        )
+
+        st.dataframe(
+            top_categories_by_postings,
+            use_container_width=True
+        )
 
         chart_data = top_categories_by_postings.set_index("category_name")
         st.bar_chart(chart_data["total_job_postings"])
 
     with right_col:
         st.subheader("Top Categories by Vacancies")
-        st.dataframe(top_categories_by_vacancies, use_container_width=True)
+
+        vacancies_sort_direction = st.radio(
+            "Sort vacancies",
+            ["Highest first", "Lowest first"],
+            horizontal=True,
+            key="vacancies_sort_direction"
+        )
+
+        top_categories_by_vacancies = sort_dataframe(
+            top_categories_by_vacancies,
+            "total_vacancies",
+            vacancies_sort_direction
+        )
+
+        st.dataframe(
+            top_categories_by_vacancies,
+            use_container_width=True
+        )
 
         chart_data = top_categories_by_vacancies.set_index("category_name")
         st.bar_chart(chart_data["total_vacancies"])
@@ -183,7 +375,7 @@ with tab2:
         """
     )
 
-    salary_query = """
+    salary_query = f"""
     SELECT
         category_name,
         COUNT(DISTINCT job_post_id) AS total_job_postings,
@@ -191,16 +383,46 @@ with tab2:
         MEDIAN(salary_maximum) AS median_salary_maximum,
         MEDIAN(average_salary) AS median_average_salary
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
       AND average_salary IS NOT NULL
     GROUP BY category_name
     ORDER BY median_average_salary DESC
-    LIMIT 10;
+    LIMIT {top_n};
     """
 
     salary_by_category = run_query(salary_query)
 
     st.subheader("Top Categories by Median Average Salary")
+
+    salary_sort_option = st.selectbox(
+        "Sort salary table and chart by",
+        [
+            "Median average salary",
+            "Median salary minimum",
+            "Median salary maximum",
+            "Total job postings"
+        ]
+    )
+
+    salary_sort_column_map = {
+        "Median average salary": "median_average_salary",
+        "Median salary minimum": "median_salary_minimum",
+        "Median salary maximum": "median_salary_maximum",
+        "Total job postings": "total_job_postings"
+    }
+
+    salary_sort_direction = st.radio(
+        "Sort salary direction",
+        ["Highest first", "Lowest first"],
+        horizontal=True,
+        key="salary_sort_direction"
+    )
+
+    salary_by_category = sort_dataframe(
+        salary_by_category,
+        salary_sort_column_map[salary_sort_option],
+        salary_sort_direction
+    )
 
     st.dataframe(
         salary_by_category,
@@ -208,8 +430,7 @@ with tab2:
     )
 
     chart_data = salary_by_category.set_index("category_name")
-
-    st.bar_chart(chart_data["median_average_salary"])
+    st.bar_chart(chart_data[salary_sort_column_map[salary_sort_option]])
 
     st.caption(
         """
@@ -218,6 +439,7 @@ with tab2:
         salary together with demand and experience requirements.
         """
     )
+
 
 # -----------------------------
 # Tab 3: Experience Requirements
@@ -236,34 +458,34 @@ with tab3:
         """
     )
 
-    experience_query = """
+    experience_query = f"""
     SELECT
         category_name,
         COUNT(DISTINCT job_post_id) AS total_job_postings,
         MEDIAN(minimum_years_experience) AS median_min_years_experience,
         AVG(minimum_years_experience) AS average_min_years_experience
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
       AND minimum_years_experience IS NOT NULL
     GROUP BY category_name
     ORDER BY median_min_years_experience ASC, total_job_postings DESC
-    LIMIT 10;
+    LIMIT {top_n};
     """
 
     experience_by_category = run_query(experience_query)
 
-    entry_level_query = """
+    entry_level_query = f"""
     SELECT
         category_name,
         COUNT(DISTINCT job_post_id) AS entry_level_job_postings,
         MEDIAN(average_salary) AS median_average_salary,
         MEDIAN(minimum_years_experience) AS median_min_years_experience
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
       AND minimum_years_experience <= 1
     GROUP BY category_name
     ORDER BY entry_level_job_postings DESC
-    LIMIT 10;
+    LIMIT {top_n};
     """
 
     entry_level_friendly_categories = run_query(entry_level_query)
@@ -273,17 +495,57 @@ with tab3:
     with left_col:
         st.subheader("Lower Experience Requirement Categories")
 
+        experience_sort_option = st.selectbox(
+            "Sort experience table and chart by",
+            [
+                "Median minimum years experience",
+                "Average minimum years experience",
+                "Total job postings"
+            ]
+        )
+
+        experience_sort_column_map = {
+            "Median minimum years experience": "median_min_years_experience",
+            "Average minimum years experience": "average_min_years_experience",
+            "Total job postings": "total_job_postings"
+        }
+
+        experience_sort_direction = st.radio(
+            "Sort experience direction",
+            ["Lowest first", "Highest first"],
+            horizontal=True,
+            key="experience_sort_direction"
+        )
+
+        experience_by_category = sort_dataframe(
+            experience_by_category,
+            experience_sort_column_map[experience_sort_option],
+            experience_sort_direction
+        )
+
         st.dataframe(
             experience_by_category,
             use_container_width=True
         )
 
         chart_data = experience_by_category.set_index("category_name")
-
-        st.bar_chart(chart_data["median_min_years_experience"])
+        st.bar_chart(chart_data[experience_sort_column_map[experience_sort_option]])
 
     with right_col:
         st.subheader("Entry-Level Friendly Categories")
+
+        entry_sort_direction = st.radio(
+            "Sort entry-level postings",
+            ["Highest first", "Lowest first"],
+            horizontal=True,
+            key="entry_sort_direction"
+        )
+
+        entry_level_friendly_categories = sort_dataframe(
+            entry_level_friendly_categories,
+            "entry_level_job_postings",
+            entry_sort_direction
+        )
 
         st.dataframe(
             entry_level_friendly_categories,
@@ -291,7 +553,6 @@ with tab3:
         )
 
         chart_data = entry_level_friendly_categories.set_index("category_name")
-
         st.bar_chart(chart_data["entry_level_job_postings"])
 
     st.caption(
@@ -302,7 +563,8 @@ with tab3:
         """
     )
 
-    # -----------------------------
+
+# -----------------------------
 # Tab 4: Career Opportunity Score
 # -----------------------------
 
@@ -327,9 +589,9 @@ with tab4:
     minimum_postings = st.slider(
         "Minimum job postings required for a category to be scored",
         min_value=0,
-        max_value=1000,
+        max_value=150000,
         value=100,
-        step=50
+        step=5000
     )
 
     category_summary_query = f"""
@@ -343,7 +605,7 @@ with tab4:
             WHEN minimum_years_experience <= 1 THEN job_post_id
         END) AS entry_level_job_postings
     FROM vw_career_coach_jobs
-    WHERE category_name IS NOT NULL
+    WHERE {filter_sql}
     GROUP BY category_name
     HAVING COUNT(DISTINCT job_post_id) >= {minimum_postings}
     ORDER BY total_job_postings DESC;
@@ -351,9 +613,11 @@ with tab4:
 
     category_summary = run_query(category_summary_query)
 
+    st.write(f"Categories included in scoring: {len(category_summary)}")
+
     if category_summary.empty:
         st.warning(
-            "No categories match the selected minimum job postings threshold."
+            "No categories match the selected filters and minimum job postings threshold."
         )
 
     else:
@@ -416,13 +680,48 @@ with tab4:
             + score_df["accessibility_score"] * 0.3
         )
 
-        opportunity_score = score_df.sort_values(
-            "opportunity_score",
-            ascending=False
-        ).reset_index(drop=True)
+        opportunity_score = score_df.copy()
 
         opportunity_score["entry_level_share_percent"] = (
             opportunity_score["entry_level_share"] * 100
+        )
+
+        score_sort_option = st.selectbox(
+            "Sort opportunity score table and chart by",
+            [
+                "Opportunity score",
+                "Demand score",
+                "Salary score",
+                "Accessibility score",
+                "Total job postings",
+                "Total vacancies",
+                "Median average salary",
+                "Entry-level share"
+            ]
+        )
+
+        score_sort_column_map = {
+            "Opportunity score": "opportunity_score",
+            "Demand score": "demand_score",
+            "Salary score": "salary_score",
+            "Accessibility score": "accessibility_score",
+            "Total job postings": "total_job_postings",
+            "Total vacancies": "total_vacancies",
+            "Median average salary": "median_average_salary",
+            "Entry-level share": "entry_level_share_percent"
+        }
+
+        score_sort_direction = st.radio(
+            "Sort opportunity score direction",
+            ["Highest first", "Lowest first"],
+            horizontal=True,
+            key="score_sort_direction"
+        )
+
+        opportunity_score = sort_dataframe(
+            opportunity_score,
+            score_sort_column_map[score_sort_option],
+            score_sort_direction
         )
 
         display_columns = [
@@ -441,17 +740,22 @@ with tab4:
         st.subheader("Top Categories by Career Opportunity Score")
 
         st.dataframe(
-            opportunity_score[display_columns].head(10),
+            opportunity_score[display_columns].head(top_n),
             use_container_width=True
         )
 
         chart_data = (
-            opportunity_score[["category_name", "opportunity_score"]]
-            .head(10)
+            opportunity_score[
+                [
+                    "category_name",
+                    score_sort_column_map[score_sort_option]
+                ]
+            ]
+            .head(top_n)
             .set_index("category_name")
         )
 
-        st.bar_chart(chart_data["opportunity_score"])
+        st.bar_chart(chart_data[score_sort_column_map[score_sort_option]])
 
         st.caption(
             """
