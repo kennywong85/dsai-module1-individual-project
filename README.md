@@ -53,3 +53,69 @@ outputs/         Charts, screenshots, and other outputs
 ## Notes
 
 Raw data files and local database files are not committed to GitHub.
+
+
+## Assumptions
+- For ERD
+A job can have many categories.
+A category can have many jobs.
+But the same exact job-category pair should not repeat.
+
+category is the master list of job categories, job_category is the linking table that says which job belongs to which category.
+job_posting = the job
+category = the category label
+job_category = which category labels belong to which job
+
+
+Example: One job with multiple categories
+Job ID: JOB002
+Title: Data Analyst
+Categories:
+- Information Technology
+- Banking and Finance
+- Consulting
+
+Then category stores the category names once:
+category_id	category_name
+21	Information Technology
+3	Banking and Finance
+9	Consulting
+
+Then job_category stores the relationship:
+job_post_id	category_id
+JOB002	21
+JOB002	3
+JOB002	9
+
+That means:
+JOB002 belongs to Information Technology
+JOB002 belongs to Banking and Finance
+JOB002 belongs to Consulting
+
+Why not just put category_name inside job_posting?
+Because one job can have more than one category.
+Bad design:
+job_post_id	title	categories
+JOB002	Data Analyst	Information Technology, Banking and Finance, Consulting
+
+That puts many values inside one cell. Databases hate that. It breaks the “one value per cell” idea.
+
+Cleaner design:
+
+job_posting:
+job_post_id	title
+JOB002	Data Analyst
+
+category:
+category_id	category_name
+21	Information Technology
+3	Banking and Finance
+9	Consulting
+
+job_category:
+job_post_id	category_id
+JOB002	21
+JOB002	3
+JOB002	9
+
+That is cleaner because each relationship gets its own row.

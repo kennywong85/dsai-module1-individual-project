@@ -195,6 +195,7 @@ def main():
 
 
     # Create company lookup table.
+    # Create a temporary clean list of of unique company names first,  and then sort companies alphabetically, then number them 1, 2, 3, 4
     # This stores each unique company name once.
     con.execute(
         """
@@ -217,11 +218,13 @@ def main():
     #create company row count, number of companies
     print("\nCreated company table")
     company_count = con.execute("SELECT COUNT(*) FROM company").fetchone()[0]
+    # for formatting
     print(f"company row count: {company_count:,}")
 
 
 
     # Create employment_type lookup table.
+    # Create a temporary clean list of of unique employment types first,  and then sort companies alphabetically, then number them 1, 2, 3, 4
     # This stores each unique employment type once.
     con.execute(
         """
@@ -250,6 +253,7 @@ def main():
 
 
     # Create position_level lookup table.
+    # Create a temporary clean list of of unique position levels first,  and then sort companies alphabetically, then number them 1, 2, 3, 4
     # This stores each unique position level once.
     con.execute(
         """
@@ -271,10 +275,25 @@ def main():
     position_level_count = con.execute("SELECT COUNT(*) FROM position_level").fetchone()[0]
     print(f"position_level row count: {position_level_count:,}")
 
+    # 1. Take a raw column from jobs_raw
+    # 2. Remove extra spaces
+    # 3. Convert blanks to missing values
+    # 4. Keep unique values only
+    # 5. Remove missing values
+    # 6. Assign each value an ID
+    # 7. Save it as a clean lookup table
+
+
+
+
 
 
     # Create main job_posting table.
     # This table stores the main job posting details.
+    # job_posting is the main clean table.
+    # It keeps one row per job posting.
+    # It stores the job title, salary, experience, vacancies, applications, views, and dates.
+    # It also connects each job to company, employment type, and position level using I
     con.execute(
         """
         CREATE OR REPLACE TABLE job_posting AS
@@ -333,9 +352,31 @@ def main():
     job_posting_count = con.execute("SELECT COUNT(*) FROM job_posting").fetchone()[0]
     print(f"job_posting row count: {job_posting_count:,}")
 
+    # Create a clean job_posting table.
+    # For each raw job:
+    #     keep job ID and title
+    #     look up company ID
+    #     look up employment type ID
+    #     look up position level ID
+    #     convert experience and vacancy fields into numbers
+    #     convert salary fields into money-like decimal numbers
+    #     convert application/view counts into numbers
+    #     convert posting dates into real dates
+    #     only keep rows with a job ID
+    # Then print how many rows were created.
 
 
-    # Pull job ID and raw categories into pandas so Python can split the category text.
+
+
+
+
+
+
+
+    # The raw CSV has one ugly categories cell per job.
+    # That cell may contain many categories.
+    # Python splits it open, collects all categories, removes duplicates, and gives DuckDB two clean tables.
+    # Pull job ID and raw categories into pandas so Python can split the category text, as a dataframe object
     category_source = con.execute(
         """
         SELECT
@@ -346,17 +387,32 @@ def main():
         """
     ).df()
 
+    # create empty Python baskets
+    # category stores category names and IDs
     category_records = []
+    # job category records store which jobs belong to which category
     job_category_records = []
 
     # Loop through every job posting and split its categories.
+    # Go through each row in the category_source table, one by one
+    # The underscore _ means: “There is a row number here, but I do not care about it.”
+    # row refers to actual row of data
     for _, row in category_source.iterrows():
+        # grab the job ID from the current row
         job_post_id = row["job_post_id"]
+        # Call earlier created function and take the ugly categories text and clean it into a Python list
         categories = parse_categories(row["categories"])
 
+        # Loop through categories for each job
+        # enumerate(..., start=1) gives category_order, category
+        # Why keep category_order? Because the original category list has an order. 
+        # We may not use it much, but keeping it is harmless and preserves information.
         for category_order, category in enumerate(categories, start=1):
+            # Put this category into the category records basket.
             category_records.append(category)
 
+
+            # Add job-category relationship record, record that this job belongs to this category.
             job_category_records.append(
                 {
                     "job_post_id": job_post_id,
@@ -366,10 +422,13 @@ def main():
             )
 
     # Convert Python lists into pandas DataFrames.
+    # Before this, category_records and job_category_records are just Python lists.
+    # After this, they become pandas DataFrames.
     category_df = pd.DataFrame(category_records)
     job_category_df = pd.DataFrame(job_category_records)
 
-    # Remove duplicate category records.
+    # Remove duplicate category records. If category ID repeats, keep only one copy. Sort categories by ID. 
+    # Clean up the pandas row numbering.
     category_df = (
         category_df
         .drop_duplicates(subset=["category_id"])
@@ -377,7 +436,8 @@ def main():
         .reset_index(drop=True)
     )
 
-    # Remove duplicate job-category links.
+    # Remove duplicate job category records. If category ID repeats, keep only one copy. Sort job categories by ID. 
+    # Clean up the pandas row numbering.
     job_category_df = (
         job_category_df
         .drop_duplicates(subset=["job_post_id", "category_id"])
@@ -385,10 +445,16 @@ def main():
     )
 
     # Register pandas DataFrames so DuckDB can read them.
+    # "DuckDB, please look at these pandas tables as if they are temporary database tables" 
+    # Expose these pandas DataFrames to DuckDB.
+    # so that duckDB can see python variables even though category_df and job category_df started as pandas objects
     con.register("category_df", category_df)
     con.register("job_category_df", job_category_df)
 
     # Create category table.
+    # Take the pandas category_df table and save it permanently inside DuckDB as category
+    # Make sure category ID is stored as a number by using ::
+    # Make sure category ID is stored as a number by using ::
     con.execute(
         """
         CREATE OR REPLACE TABLE category AS
@@ -399,11 +465,10 @@ def main():
         """
     )
 
+    # Count how many unique categories were created
     print("\nCreated category table")
     category_count = con.execute("SELECT COUNT(*) FROM category").fetchone()[0]
     print(f"category row count: {category_count:,}")
-
-
 
     # Create job_category bridge table.
     con.execute(
@@ -417,14 +482,43 @@ def main():
         """
     )
 
+    # Take the pandas job_category_df table and save it inside DuckDB as job_category
+    # which job belongs to which category
+    # one job can have many categories
+    # one category can appear in many jobs
     print("\nCreated job_category table")
     job_category_count = con.execute("SELECT COUNT(*) FROM job_category").fetchone()[0]
     print(f"job_category row count: {job_category_count:,}")
+
+    # Take job IDs and raw categories from jobs_raw.
+    # For each job:
+    #    split the categories text into clean category records
+    #    save category info into one basket
+    #    save job-category links into another basket
+    # Turn both baskets into pandas DataFrames.
+    # Remove duplicate categories.
+    # Remove duplicate job-category links.
+    # Let DuckDB read those pandas DataFrames.
+    # Create category table.
+    # Create job_category bridge table.
+
+
+
+
+
+
+
 
 
 
     # Create dashboard-ready view.
     # This joins the clean tables into one easy table for analysis.
+    # The database is split into clean tables.
+    # That is good for storage.
+    # But annoying for analysis.
+    # So we create one nice view that joins everything back together.
+    # vw_career_coach_jobs acts like a ready-made analysis table.
+    # a view is not really a new physical table. It is more like a saved SQL query
     con.execute(
         """
         CREATE OR REPLACE VIEW vw_career_coach_jobs AS
