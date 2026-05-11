@@ -19,6 +19,9 @@ Career coaches supporting jobseekers, fresh graduates, and mid-career switchers 
 
 Career coaches need a quick way to guide jobseekers using evidence from the labour market, but raw job postings are noisy and difficult to interpret quickly.
 
+Identify potential talent shortage areas by comparing job demand, applicant interest, and salary attractiveness.
+
+
 ## Prototype Objective/Usecases
 
     This project helps career coaches compare job categories by:
@@ -26,6 +29,10 @@ Career coaches need a quick way to guide jobseekers using evidence from the labo
 - market demand
 - salary range
 - experience requirements
+- opportunity score
+- talent shortage signals
+
+This prototype also includes a talent shortage signal analysis. It compares job postings and vacancies against applications and views to identify categories where hiring demand may be high but applicant interest appears weaker.
 
 ## Tech Stack
 

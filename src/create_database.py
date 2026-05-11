@@ -558,7 +558,7 @@ def main():
 
         LEFT JOIN category
             ON job_category.category_id = category.category_id;
-        """
+        """  
     )
 
     print("\nCreated vw_career_coach_jobs view")
@@ -566,6 +566,53 @@ def main():
     print(f"vw_career_coach_jobs row count: {view_count:,}")
 
 
+
+    # This view creates one row per category - “Which categories have high hiring demand but weaker applicant interest?”
+    # total_job_postings          = how many job ads
+    # total_vacancies             = how many openings
+    # total_applications          = how many applications
+    # total_views                 = how many views
+    # median_average_salary       = salary attractiveness
+    # applications_per_vacancy    = applicant interest compared to demand
+    # applications_per_posting    = applicant interest per ad
+    # views_per_posting           = browsing interest per ad
+    # Looking out for high vacancies + low applications per vacancy
+    con.execute(
+        """
+        CREATE OR REPLACE VIEW vw_talent_shortage_categories AS
+        SELECT
+            category_name,
+            
+            COUNT(DISTINCT job_post_id) AS total_job_postings,
+            
+            SUM(number_of_vacancies) AS total_vacancies,
+            SUM(total_applications) AS total_applications,
+            SUM(total_views) AS total_views,
+
+            MEDIAN(average_salary) AS median_average_salary,
+
+            SUM(total_applications) * 1.0 / NULLIF(SUM(number_of_vacancies), 0)
+            AS applications_per_vacancy,
+
+            SUM(total_applications) * 1.0 / NULLIF(COUNT(DISTINCT job_post_id), 0)
+            AS applications_per_posting,
+
+            SUM(total_views) * 1.0 / NULLIF(COUNT(DISTINCT job_post_id), 0)
+            AS views_per_posting
+
+        FROM vw_career_coach_jobs
+        
+        WHERE category_name IS NOT NULL
+        
+        GROUP BY category_name; 
+        """
+    )
+
+    print("\nCreated vw_talent_shortage_categories view")
+    talent_shortage_count = con.execute(
+        "SELECT COUNT(*) FROM vw_talent_shortage_categories"
+    ).fetchone()[0]
+    print(f"vw_talent_shortage_categories row count: {talent_shortage_count:,}")
 
     # close the connection when done
     con.close()

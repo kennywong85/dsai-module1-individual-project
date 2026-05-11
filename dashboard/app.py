@@ -307,12 +307,13 @@ def sort_dataframe(dataframe, sort_column, sort_direction):
 # Dashboard tabs
 # -----------------------------
 
-tab1, tab2, tab3, tab4 = st.tabs(
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
         "Market Demand",
         "Salary Ranges",
         "Experience Requirements",
-        "Opportunity Score"
+        "Opportunity Score",
+        "Talent Shortage Signals"
     ]
 )
 
@@ -826,5 +827,182 @@ with tab4:
 
             Career coaches should still consider the jobseeker's skills, background,
             interests, qualifications, and constraints before making recommendations.
+            """
+        )
+
+# -----------------------------
+# Tab 5: Talent Shortage Signals
+# -----------------------------
+with tab5:
+    st.header("Talent Shortage Signals")
+
+    st.write(
+        """
+        This section identifies job categories where hiring demand appears high
+        but applicant interest may be weaker.
+
+        This is a proxy analysis using job postings, vacancies, applications,
+        views, and salary data. It does not prove an actual shortage, but it can
+        highlight categories worth further workforce-planning investigation.
+        """
+    )
+
+    minimum_shortage_postings = st.slider(
+        "Minimum job postings required for shortage analysis",
+        min_value=0,
+        max_value=150000,
+        value=100,
+        step=5000
+    )
+
+    talent_query = f"""
+    SELECT
+        category_name,
+        total_job_postings,
+        total_vacancies,
+        total_applications,
+        total_views,
+        median_average_salary,
+        applications_per_vacancy,
+        applications_per_posting,
+        views_per_posting
+    FROM vw_talent_shortage_categories
+    WHERE category_name IS NOT NULL
+      AND total_job_postings >= {minimum_shortage_postings}
+    ORDER BY total_vacancies DESC;
+    """
+
+    talent_df = run_query(talent_query)
+
+    st.write(f"Categories included in shortage analysis: {len(talent_df)}")
+
+    if talent_df.empty:
+        st.warning("No categories match the selected shortage-analysis threshold.")
+
+    else:
+        talent_df = talent_df.dropna(
+            subset=[
+                "total_job_postings",
+                "total_vacancies",
+                "applications_per_vacancy",
+                "views_per_posting",
+                "median_average_salary"
+            ]
+        )
+
+        talent_df["posting_demand_score"] = (
+            talent_df["total_job_postings"].rank(pct=True) * 100
+        )
+
+        talent_df["vacancy_demand_score"] = (
+            talent_df["total_vacancies"].rank(pct=True) * 100
+        )
+
+        talent_df["demand_score"] = (
+            talent_df["posting_demand_score"] * 0.5
+            + talent_df["vacancy_demand_score"] * 0.5
+        )
+
+        talent_df["low_application_score"] = (
+            talent_df["applications_per_vacancy"]
+            .rank(pct=True, ascending=False) * 100
+        )
+
+        talent_df["low_view_score"] = (
+            talent_df["views_per_posting"]
+            .rank(pct=True, ascending=False) * 100
+        )
+
+        talent_df["weak_interest_score"] = (
+            talent_df["low_application_score"] * 0.7
+            + talent_df["low_view_score"] * 0.3
+        )
+
+        talent_df["salary_attractiveness_score"] = (
+            talent_df["median_average_salary"].rank(pct=True) * 100
+        )
+
+        talent_df["talent_shortage_signal_score"] = (
+            talent_df["demand_score"] * 0.6
+            + talent_df["weak_interest_score"] * 0.4
+        )
+
+        shortage_sort_option = st.selectbox(
+            "Sort talent shortage table and chart by",
+            [
+                "Talent shortage signal score",
+                "Demand score",
+                "Weak interest score",
+                "Total vacancies",
+                "Applications per vacancy",
+                "Median average salary"
+            ]
+        )
+
+        shortage_sort_column_map = {
+            "Talent shortage signal score": "talent_shortage_signal_score",
+            "Demand score": "demand_score",
+            "Weak interest score": "weak_interest_score",
+            "Total vacancies": "total_vacancies",
+            "Applications per vacancy": "applications_per_vacancy",
+            "Median average salary": "median_average_salary"
+        }
+
+        shortage_sort_direction = st.radio(
+            "Sort talent shortage direction",
+            ["Highest first", "Lowest first"],
+            horizontal=True,
+            key="shortage_sort_direction"
+        )
+
+        talent_df = sort_dataframe(
+            talent_df,
+            shortage_sort_column_map[shortage_sort_option],
+            shortage_sort_direction
+        )
+
+        display_columns = [
+            "category_name",
+            "total_job_postings",
+            "total_vacancies",
+            "total_applications",
+            "applications_per_vacancy",
+            "views_per_posting",
+            "median_average_salary",
+            "demand_score",
+            "weak_interest_score",
+            "salary_attractiveness_score",
+            "talent_shortage_signal_score"
+        ]
+
+        st.subheader("Potential Talent Shortage Categories")
+
+        st.dataframe(
+            talent_df[display_columns].head(top_n),
+            use_container_width=True
+        )
+
+        chart_data = (
+            talent_df[
+                [
+                    "category_name",
+                    shortage_sort_column_map[shortage_sort_option]
+                ]
+            ]
+            .head(top_n)
+            .set_index("category_name")
+        )
+
+        st.bar_chart(chart_data[shortage_sort_column_map[shortage_sort_option]])
+
+        st.caption(
+            """
+            Talent shortage signal score combines high demand and weaker applicant
+            interest. Salary attractiveness is shown as a supporting context, not
+            as proof of shortage.
+
+            A category with high demand and low applications per vacancy may indicate
+            hiring friction, low attractiveness, skills mismatch, or other labour-market
+            constraints.
             """
         )
