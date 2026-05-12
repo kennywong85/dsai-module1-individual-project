@@ -568,7 +568,7 @@ def main():
 
 
 
-
+    # Create dashboard-ready view.
     # This view creates one row per category for
     # “Which categories have high hiring demand but weaker applicant interest?”
     # total_job_postings          = how many job ads

@@ -8,6 +8,7 @@
 # 7. Dataset summary
 # 8. sort_dataframe()
 # 9. Dashboard tabs
+
 # 9.1 Market Demand tab
 # 9.2 Salary Ranges tab
 # 9.3 Experience Requirements tab
@@ -939,12 +940,18 @@ with tab4:
             """
         )
 
-# -----------------------------
-# Tab 5: Talent Shortage Signals
-# -----------------------------
+# 9.5 Talent Shortage Signals tab
+# Which categories have:
+# 1. high demand
+# 2. weaker applicant interest
+# Demand means:job postings + vacancies. Applicant interest means: applications + views.
+# Salary used as context
 with tab5:
+    # everything indented under with tab5: belongs inside the fifth tab.
+    # set tab title
     st.header("Talent Shortage Signals")
 
+    # set caption for the tab
     st.write(
         """
         This section identifies job categories where hiring demand appears high
@@ -956,14 +963,20 @@ with tab5:
         """
     )
 
+    # create slider for job job postings
     minimum_shortage_postings = st.slider(
         "Minimum job postings required for shortage analysis",
         min_value=0,
         max_value=150000,
         value=100,
-        step=5000
+        step=100
     )
 
+    # Query the talent shortage view
+    # we have a view that summarises the data by category.
+    # So instead of querying individual job postings, this tab starts from a category summary view.
+    # Thus use the pre-made category shortage summary table, vw_talent_shortage_categories
+    # Sorts by total vacancies, highest first. A category with many vacancies is more important to investigate than a tiny category with low applicant interest.
     talent_query = f"""
     SELECT
         category_name,
@@ -980,15 +993,27 @@ with tab5:
       AND total_job_postings >= {minimum_shortage_postings}
     ORDER BY total_vacancies DESC;
     """
-
+    
+    # run query using query helper function
+    # Send the SQL query to DuckDB and get the answer as a DataFrame
+    # talent_df will be a table containing category-level shortage metrics
     talent_df = run_query(talent_query)
 
+    # Show how many categories are included
     st.write(f"Categories included in shortage analysis: {len(talent_df)}")
 
+    # sanity check before proceeding, if dataframe table is not empty, proceed
     if talent_df.empty:
         st.warning("No categories match the selected shortage-analysis threshold.")
-
     else:
+        # Remove rows missing key scoring fields
+        # To calculate the shortage score, need to use, and cannot have any missing:
+        # job postings
+        # vacancies
+        # applications per vacancy
+        # views per posting
+        # salary
+
         talent_df = talent_df.dropna(
             subset=[
                 "total_job_postings",
@@ -999,43 +1024,58 @@ with tab5:
             ]
         )
 
+        # Job posting demand score, creates a score from roughly 0 to 100
+        # .rank(pct=True) * 100 part turns raw numbers into percentile-style scores
+        # Categories with more job postings get higher scores
         talent_df["posting_demand_score"] = (
             talent_df["total_job_postings"].rank(pct=True) * 100
         )
 
+        # Vacancy demand score, creates a score from roughly 0 to 100
+        # .rank(pct=True) * 100 part turns raw numbers into percentile-style scores
+        # Categories with more vacancies get higher scores
         talent_df["vacancy_demand_score"] = (
             talent_df["total_vacancies"].rank(pct=True) * 100
         )
 
+        # demand score = job posting score * vacancy score, each 50% weightaage
         talent_df["demand_score"] = (
             talent_df["posting_demand_score"] * 0.5
             + talent_df["vacancy_demand_score"] * 0.5
         )
 
+        # use applications per vacancy
+        # lower applications per vacancy = stronger shortage signal
         talent_df["low_application_score"] = (
             talent_df["applications_per_vacancy"]
             .rank(pct=True, ascending=False) * 100
         )
-
+        
+        # use views per posting
+        # Lower views per posting means weaker attention to the job
         talent_df["low_view_score"] = (
             talent_df["views_per_posting"]
             .rank(pct=True, ascending=False) * 100
         )
 
+        # weak interest scpre = low application * low view. weightage 70%. 30% respectively
         talent_df["weak_interest_score"] = (
             talent_df["low_application_score"] * 0.7
             + talent_df["low_view_score"] * 0.3
         )
 
+        # use median average salary for the industry/category as a proxy for salary context
         talent_df["salary_attractiveness_score"] = (
             talent_df["median_average_salary"].rank(pct=True) * 100
         )
 
+        # combine overall demand score and weak interest scoring, 60%, 40% weightage
         talent_df["talent_shortage_signal_score"] = (
             talent_df["demand_score"] * 0.6
             + talent_df["weak_interest_score"] * 0.4
         )
-
+        
+        # create the dropdown to let user choose what to sort by in the columns, and control the ranking
         shortage_sort_option = st.selectbox(
             "Sort talent shortage table and chart by",
             [
@@ -1048,6 +1088,7 @@ with tab5:
             ]
         )
 
+        # Translate user-friendly menu text into actual column names Python understands.   
         shortage_sort_column_map = {
             "Talent shortage signal score": "talent_shortage_signal_score",
             "Demand score": "demand_score",
@@ -1057,6 +1098,7 @@ with tab5:
             "Median average salary": "median_average_salary"
         }
 
+        # Sort direction radio buttons
         shortage_sort_direction = st.radio(
             "Sort talent shortage direction",
             ["Highest first", "Lowest first"],
@@ -1064,12 +1106,21 @@ with tab5:
             key="shortage_sort_direction"
         )
 
+        # Sort the DataFrame
+        # It sorts talent_df by whichever column the user selected
+        # using the above
+        # shortage_sort_option
+        # shortage_sort_column_map 
+        # shortage_sort_direction
+        # Sort the actual table before showing it, so the table and chart match
         talent_df = sort_dataframe(
             talent_df,
             shortage_sort_column_map[shortage_sort_option],
             shortage_sort_direction
         )
-
+        
+        # choose which columns to show in the dashboard table.
+        # no need to show every helper column
         display_columns = [
             "category_name",
             "total_job_postings",
@@ -1086,11 +1137,16 @@ with tab5:
 
         st.subheader("Potential Talent Shortage Categories")
 
+        # displays the table using the columns from display_columns
+        # top_n is from the global sidebar filter
+        # use_container_width=True. Makes the table use the available width
         st.dataframe(
             talent_df[display_columns].head(top_n),
             use_container_width=True
         )
 
+        # prepare simple chart data
+        # category_name becomes chart label
         chart_data = (
             talent_df[
                 [
