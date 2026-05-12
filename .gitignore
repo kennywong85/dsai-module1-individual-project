@@ -1,4 +1,18 @@
-
 # Local DuckDB database files
 db/*.duckdb
 db/*.duckdb.wal
+
+# Raw and processed data files
+data/raw/*
+data/processed/*
+
+# Keep placeholder files
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
